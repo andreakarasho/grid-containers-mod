@@ -1,0 +1,25 @@
+# Grid containers for ClassicUO, as a core-wasm mod. Standalone crate (own empty
+# workspace), built as a wasm32-wasip1 cdylib; rlib so `cargo test` runs natively.
+[workspace]
+
+[package]
+name = "grid-containers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# The SDK checkout of the client this mod is built against (its generated paths /
+# types must match that host's registry).
+cuo-mod-sdk = { path = "../cuo-agents/external/classicuo-mods-sdk/rust" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+opt-level = "s"
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
