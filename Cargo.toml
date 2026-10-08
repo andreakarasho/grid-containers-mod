@@ -1,5 +1,5 @@
-# Grid containers for ClassicUO, as a core-wasm mod. Standalone crate (own empty
-# workspace), built as a wasm32-wasip1 cdylib; rlib so `cargo test` runs natively.
+# Grid containers for ClassicUO, as a mod (wasm32-wasip2 component). Standalone crate (own empty
+# workspace), built as a wasm32-wasip2 cdylib; rlib so `cargo test` runs natively.
 [workspace]
 
 [package]

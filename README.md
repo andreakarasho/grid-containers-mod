@@ -1,6 +1,6 @@
 # grid-containers
 
-Grid container windows for the ClassicUO ECS client, as a Rust core-wasm mod. A 1:1
+Grid container windows for the ClassicUO ECS client, as a Rust mod (wasm32-wasip2 component). A 1:1
 port of the client's former host `GridContainerGumpPlugin` + `GridMultiMovePlugin`:
 
 - resizable dark panel per container, slots in a scrollable grid, container icon,
