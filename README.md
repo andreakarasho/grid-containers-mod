@@ -28,7 +28,13 @@ surface — no host code knows about it.
 ```
 make build            # -> ../cuo-agents/ecs-mods/grid-containers/{mod.wasm,mod.json}
 make test             # logic unit tests (native)
+make tests            # install tests/ into the client's test project (host-driven tests)
 ```
+
+The host-driven tests (`tests/*.cs`) load the built mod through the real client. `make
+tests` installs `ModTests/grid-containers.targets` into `$(CUO_REPO)/tests/ClassicUO.Ecs.Tests`,
+which compiles them into that test assembly; run `make build`, then `dotnet test
+tests/ClassicUO.Ecs.Tests` in the client checkout.
 
 `CUO_REPO=<path>` points at another client checkout. The crate builds against that
 checkout's `external/classicuo-mods-sdk`, so its generated paths / types match the

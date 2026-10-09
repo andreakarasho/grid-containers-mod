@@ -3,7 +3,7 @@ CUO_REPO ?= ../cuo-agents
 NAME := grid-containers
 RAW := target/wasm32-wasip2/release/grid_containers.wasm
 
-.PHONY: build wasm check test
+.PHONY: build wasm check test tests
 
 wasm:
 	cargo build --release --target wasm32-wasip2
@@ -19,3 +19,10 @@ check:
 
 test:
 	cargo test
+
+# Host-driven tests (tests/*.cs) run inside the ClassicUO test project: install the include,
+# then `make build` and `dotnet test tests/ClassicUO.Ecs.Tests` in $(CUO_REPO).
+tests:
+	mkdir -p $(CUO_REPO)/tests/ClassicUO.Ecs.Tests/ModTests
+	cp tests/ModTests.targets $(CUO_REPO)/tests/ClassicUO.Ecs.Tests/ModTests/$(NAME).targets
+	@echo ">> installed ModTests/$(NAME).targets; run 'dotnet test tests/ClassicUO.Ecs.Tests' in $(CUO_REPO)"

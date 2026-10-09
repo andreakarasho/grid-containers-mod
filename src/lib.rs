@@ -35,6 +35,7 @@ use cuo_mod_sdk::actions::{self, Destination, Point};
 use cuo_mod_sdk::assets::{self, StaticInfo};
 use cuo_mod_sdk::host::Scope;
 use cuo_mod_sdk::prelude::*;
+use cuo_mod_sdk::types::Item as IsItem;
 use logic::*;
 
 const CLAIM_CONTAINERS: &str = "cuo:gump/container";
@@ -44,6 +45,9 @@ const MOUSE_RIGHT: u8 = 3;
 const LAYER_BACKPACK: usize = 0x15;
 const ART: u8 = 3; // UOCustomKind.Art
 const TILE_STACKABLE: u64 = 0x0000_0800;
+const TILE_CONTAINER: u64 = 0x0020_0000;
+const CORPSE_GRAPHIC: u16 = 0x2006;
+const WORLD_SWEEP_MIN: usize = 512;
 const GAME_SCREEN: u8 = 6;
 const NAME_REFRESH_MS: f32 = 1000.0;
 
@@ -114,33 +118,41 @@ struct Opts {
     skip_empty_corpse: bool,
 }
 
-/// One frame's host data, copied in by the snapshot systems.
+/// The host data the logic reads, copied in by the snapshot systems. Most snapshots
+/// are run-on-change and fed by Changed filters, so these fields are maintained
+/// incrementally and persist across the frames a snapshot is skipped.
 #[derive(Default)]
 struct Frame {
-    // First: input.
+    // First: input (resources).
     mouse: MouseInputDto,
     keys: Keys,
     pick: UiPickDto,
     held_serial: u32,
     targeting: bool,
-    now: f32,
     host_hotkeys: Vec<HostHotkeyDto>,
     // First: game.
     game_screen: bool,
     player: (u32, String),
     backpack: u32,
     popups: Vec<Entity>,
-    // First + Update: layout. Window root bits -> (Node, z); content bits -> (rect, scroll).
+    // First + Update: layout, our views only. Window root bits -> (Node, z); content
+    // column bits -> (rect, scroll).
     windows: HashMap<u64, (Node, i32)>,
     contents: HashMap<u64, (ComputedNode, f32)>,
-    // Update: world.
-    containers: HashMap<u32, (u16, u16)>,
-    container_pos: HashMap<u32, WorldPosition>,
-    player_pos: Option<WorldPosition>,
+    // Update: world. Container-like items by entity bits -> (serial, graphic, hue) /
+    // (serial, position); looked up through the serial's live entity.
+    looks: HashMap<u64, (u32, u16, u16)>,
+    positions: HashMap<u64, (u32, WorldPosition)>,
+    /// Size above which `looks` + `positions` are swept of despawned entities.
+    world_cap: usize,
     player_weight: Option<(u16, u16)>,
     auto_corpses: HashSet<u64>,
     manual_corpses: HashSet<u64>,
+    /// Our search fields' text, by field entity bits.
     texts: HashMap<u64, String>,
+    // Update, every frame: the clock (`update`), the player's position (snap_live).
+    now: f32,
+    player_pos: Option<WorldPosition>,
 }
 
 struct State {
@@ -413,6 +425,9 @@ fn forget_tree(view: &mut View, tinted: &mut HashSet<(u32, usize)>, cmds: Option
 fn drop_view(s: &mut State, serial: u32) {
     if let Some(mut view) = s.views.remove(&serial) {
         forget_tree(&mut view, &mut s.tinted, None);
+        s.f.windows.remove(&view.window.to_bits());
+        s.f.contents.remove(&view.content.to_bits());
+        s.f.texts.remove(&view.search.to_bits());
     }
 }
 
@@ -430,13 +445,30 @@ fn despawn_pin_menu(s: &mut State, cmds: &mut Commands) {
 
 fn setup(app: &mut App) {
     app.add_systems(Schedule::Startup, declare_options);
+    // The snapshots skip idle frames: run-on-change, fed by resources and Changed
+    // queries. What can't be change-filtered stays plain (a plain system runs while a
+    // row matches, once on the frame its queries empty, then the host's idle-skip
+    // parks it): the popups (a tag), and snap_live — the player's position, written
+    // in place without a change tick, so it runs every in-game frame.
     app.add_systems(
         Schedule::First,
-        (snap_input, snap_game.after(snap_input), snap_layout.after(snap_game), first.after(snap_layout)),
+        (
+            snap_input.run_on_change(),
+            snap_game.after(snap_input).run_on_change(),
+            snap_popups.after(snap_input),
+            snap_layout.after(snap_game).run_on_change(),
+            first.after(snap_layout).after(snap_popups),
+        ),
     );
     app.add_systems(
         Schedule::Update,
-        (item_feed, snap_world.after(item_feed), snap_layout.after(snap_world), update.after(snap_world)),
+        (
+            item_feed.run_on_change(),
+            snap_world.after(item_feed).run_on_change(),
+            snap_live.after(item_feed),
+            snap_layout.after(snap_world).run_on_change(),
+            update.after(snap_world).after(snap_live),
+        ),
     );
     app.add_systems(Schedule::PostUpdate, post);
 
@@ -480,17 +512,22 @@ fn snap_input(
     pick: Option<Res<UiPickDto>>,
     grabbed: Option<Res<GrabbedItem>>,
     target: Option<Res<TargetingState>>,
-    time: Option<Res<Time>>,
     hotkeys: Option<Res<HostHotkeysDto>>,
 ) {
+    // No clock here (it changes every frame and would keep this awake): `update`
+    // reads it. A skipped run means every resource equals what this one copied.
     let f = &mut st().f;
     f.mouse = mouse.map(|m| m.clone()).unwrap_or_default();
     f.keys = kb.map(|k| Keys { held: k.pressed.clone(), once: k.pressed_once.clone() }).unwrap_or_default();
     f.pick = pick.map(|p| p.clone()).unwrap_or_default();
     f.held_serial = grabbed.map_or(0, |g| g.serial);
     f.targeting = target.is_some_and(|t| t.is_targeting);
-    f.now = time.map_or(0.0, |t| t.total);
     f.host_hotkeys = hotkeys.map(|h| h.hotkeys.clone()).unwrap_or_default();
+}
+
+/// The open popups (UiPopup is a tag: no change ticks, so a plain query).
+fn snap_popups(popups: Query<&UiPopup>) {
+    st().f.popups = popups.iter().map(|(e, _)| e).collect();
 }
 
 fn snap_game(
@@ -498,14 +535,16 @@ fn snap_game(
     ctx: Option<Res<GameContextDto>>,
     values: Option<Res<ModOptionsValuesDto>>,
     settings: Option<Res<GameSettingsDto>>,
-    popups: Query<&UiPopup>,
-    equipment: Query<&EquipmentSlotsDto, With<Player>>,
+    equipment: Query<&EquipmentSlotsDto, (With<Player>, Changed<EquipmentSlotsDto>)>,
 ) {
     let s = st();
     s.f.game_screen = state.is_some_and(|g| g.current == GAME_SCREEN);
     s.f.player = ctx.map(|c| (c.player_serial, c.player_name.clone())).unwrap_or_default();
-    s.f.backpack = equipment.single().and_then(|(_, e)| e.serials.get(LAYER_BACKPACK).copied()).unwrap_or(0);
-    s.f.popups = popups.iter().map(|(e, _)| e).collect();
+    // The player entity (and its equipment) respawns on every login, so its first
+    // sight arrives as a change; leave_game forgets the old one.
+    if let Some((_, e)) = equipment.single() {
+        s.f.backpack = e.serials.get(LAYER_BACKPACK).copied().unwrap_or(0);
+    }
 
     let get = |k: &str, d: i32| values.as_ref().and_then(|v| v.values.get(k).copied()).unwrap_or(d);
     s.opts.containers = get(OPT_CONTAINERS, 0) != 0;
@@ -518,15 +557,26 @@ fn snap_game(
     }
 }
 
-/// The grid windows' roots (size, display, z) and every scroll content column's rect
-/// + scroll offset (ours are among them).
+/// The grid windows' roots (size, display, z) and their content columns' rect +
+/// scroll offset, as they change. Entries leave with their view (drop_view).
+#[allow(clippy::type_complexity)]
 fn snap_layout(
-    windows: Query<(&Node, &GlobalZIndex), With<GridContainerWindow>>,
-    contents: Query<(&ComputedNode, &ScrollPosition), With<UiScrollbar>>,
+    moved: Query<(&Node, &GlobalZIndex), (With<GridContainerWindow>, Changed<Node>)>,
+    raised: Query<(&Node, &GlobalZIndex), (With<GridContainerWindow>, Changed<GlobalZIndex>)>,
+    laid_out: Query<(&ComputedNode, &ScrollPosition), (With<UiScrollbar>, Changed<ComputedNode>)>,
+    scrolled: Query<(&ComputedNode, &ScrollPosition), (With<UiScrollbar>, Changed<ScrollPosition>)>,
 ) {
-    let f = &mut st().f;
-    f.windows = windows.iter().map(|(e, (n, z))| (e.to_bits(), (n.clone(), z.value))).collect();
-    f.contents = contents.iter().map(|(e, (c, p))| (e.to_bits(), (c.clone(), p.offset_y))).collect();
+    let s = st();
+    for (e, (n, z)) in moved.iter().chain(raised.iter()) {
+        if view_by_window(&s.views, e.to_bits()).is_some() {
+            s.f.windows.insert(e.to_bits(), (n.clone(), z.value));
+        }
+    }
+    for (e, (c, p)) in laid_out.iter().chain(scrolled.iter()) {
+        if s.views.values().any(|v| v.content == e) {
+            s.f.contents.insert(e.to_bits(), (c.clone(), p.offset_y));
+        }
+    }
 }
 
 /// The open containers' items: membership as it changes (a contained item's parent link
@@ -629,24 +679,78 @@ fn unlive(s: &mut State, serial: u32) {
     }
 }
 
+/// Container looks + positions, the player's weight and our search fields' text, as
+/// they change.
+///
+/// Containers: the host's IsContainer is a tag (no change ticks) that lands only when
+/// a container's contents first arrive — long after its graphic did — so a
+/// change-filtered IsContainer query would miss it. Instead every item's graphic /
+/// hue / position change is seen, and the container-like ones (tiledata container
+/// flag, corpses) kept, by entity. Lookups go through the serial's live entity, so a
+/// despawned container's entry is never read; those are swept by size (and on logout).
 #[allow(clippy::type_complexity)]
 fn snap_world(
-    containers: Query<(&Graphic, &Hue, &Serial), With<IsContainer>>,
-    container_pos: Query<(&WorldPosition, &Serial), With<IsContainer>>,
-    player_pos: Query<&WorldPosition, With<Player>>,
-    player_data: Query<&PlayerData, With<Player>>,
+    graphics: Query<(&Graphic, &Hue, &Serial), (With<IsItem>, Changed<Graphic>)>,
+    hues: Query<(&Graphic, &Hue, &Serial), (With<IsItem>, Changed<Hue>)>,
+    moved: Query<(&WorldPosition, &Graphic, &Serial), (With<IsItem>, Changed<WorldPosition>)>,
+    player_data: Query<&PlayerData, (With<Player>, Changed<PlayerData>)>,
+    texts: Query<&Text, (With<EditableText>, Changed<Text>)>,
+) {
+    let s = st();
+    for (e, (g, h, serial)) in graphics.iter().chain(hues.iter()) {
+        let key = e.to_bits();
+        if container_like(&mut s.tiles, g.value) {
+            s.f.looks.insert(key, (serial.value, g.value, h.value));
+        } else {
+            s.f.looks.remove(&key);
+            s.f.positions.remove(&key);
+        }
+    }
+    for (e, (p, g, serial)) in &moved {
+        if container_like(&mut s.tiles, g.value) {
+            s.f.positions.insert(e.to_bits(), (serial.value, p.clone()));
+        }
+    }
+    sweep_world(&mut s.f);
+    if let Some((_, d)) = player_data.single() {
+        s.f.player_weight = Some((d.weight, d.weight_max));
+    }
+    for (e, t) in &texts {
+        if s.views.values().any(|v| v.search == e) {
+            s.f.texts.insert(e.to_bits(), t.value.clone());
+        }
+    }
+}
+
+/// Anything the client may open as a container window: tiledata container flag, or a
+/// corpse.
+fn container_like(tiles: &mut HashMap<u16, Option<StaticInfo>>, graphic: u16) -> bool {
+    graphic == CORPSE_GRAPHIC || tile(tiles, graphic).is_some_and(|t| t.flags & TILE_CONTAINER != 0)
+}
+
+/// Drop the entries of despawned containers once the maps outgrow twice their live
+/// size (amortised: one serial lookup per entry added since the last sweep).
+fn sweep_world(f: &mut Frame) {
+    if f.looks.len() + f.positions.len() <= f.world_cap.max(WORLD_SWEEP_MIN) {
+        return;
+    }
+    f.looks.retain(|e, l| resolve(l.0) == *e);
+    f.positions.retain(|e, p| resolve(p.0) == *e);
+    f.world_cap = (f.looks.len() + f.positions.len()) * 2;
+}
+
+/// What has no usable change ticks, read every frame: the player's position (the
+/// movement systems write it in place, no tick) and who opened which corpse (tags).
+/// Plain queries; see setup.
+fn snap_live(
+    player: Query<&WorldPosition, With<Player>>,
     auto: Query<&AutoOpenedCorpse>,
     manual: Query<&ManualOpenedCorpse>,
-    texts: Query<&Text, With<EditableText>>,
 ) {
     let f = &mut st().f;
-    f.containers = containers.iter().map(|(_, (g, h, s))| (s.value, (g.value, h.value))).collect();
-    f.container_pos = container_pos.iter().map(|(_, (p, s))| (s.value, p.clone())).collect();
-    f.player_pos = player_pos.single().map(|(_, p)| p.clone());
-    f.player_weight = player_data.single().map(|(_, d)| (d.weight, d.weight_max));
+    f.player_pos = player.single().map(|(_, p)| p.clone());
     f.auto_corpses = auto.iter().map(|(e, _)| e.to_bits()).collect();
     f.manual_corpses = manual.iter().map(|(e, _)| e.to_bits()).collect();
-    f.texts = texts.iter().map(|(e, t)| (e.to_bits(), t.value.clone())).collect();
 }
 
 // ── First ───────────────────────────────────────────────────────────────────────
@@ -724,6 +828,12 @@ fn leave_game(s: &mut State, cmds: &mut Commands) {
     }
     // Logout despawns every item; a stale Seen would read as deleted.
     s.pins_seen.clear();
+    // ...and the player and every container with it: their next sight is a change.
+    s.f.backpack = 0;
+    s.f.player_weight = None;
+    s.f.looks.clear();
+    s.f.positions.clear();
+    s.f.world_cap = 0;
     s.members.clear();
     s.parent_of.clear();
     s.member_serial.clear();
@@ -1253,8 +1363,9 @@ fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositionsD
 
 // ── Update ──────────────────────────────────────────────────────────────────────
 
-fn update(mut cmds: Commands) {
+fn update(time: Option<Res<Time>>, mut cmds: Commands) {
     let s = st();
+    s.f.now = time.map_or(0.0, |t| t.total);
     let sort_clicks = std::mem::take(&mut s.sort_clicks);
     let pin_clicked = std::mem::take(&mut s.pin_clicked);
     if !s.in_game {
@@ -1343,9 +1454,10 @@ fn prune_pins(s: &mut State) {
 /// reach (legacy GridLootGump) — re-sent every frame until the window goes.
 fn close_gone_corpses(s: &mut State) {
     for view in s.views.values().filter(|v| v.is_corpse) {
-        let mut gone = resolve(view.serial) == 0;
+        let ent = resolve(view.serial);
+        let mut gone = ent == 0;
         if !gone {
-            if let (Some(pos), Some(p)) = (s.f.container_pos.get(&view.serial), s.f.player_pos.as_ref()) {
+            if let (Some((_, pos)), Some(p)) = (s.f.positions.get(&ent), s.f.player_pos.as_ref()) {
                 let dist = (pos.x as i32 - p.x as i32).abs().max((pos.y as i32 - p.y as i32).abs());
                 gone = dist > CORPSE_MAX_DIST;
             }
@@ -1411,7 +1523,7 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
 
         // Title = container name from its OPL; the item graphic's tiledata name meanwhile.
         let mut title = props.as_ref().filter(|p| !p.name.is_empty()).map(|p| p.name.clone());
-        let look = s.f.containers.get(&serial).copied().or_else(|| s.items.get(&serial).map(|i| (i.graphic, i.hue)));
+        let look = s.f.looks.get(&container).map(|l| (l.1, l.2)).or_else(|| s.items.get(&serial).map(|i| (i.graphic, i.hue)));
         if let Some((graphic, hue)) = look {
             let tl = tile(&mut s.tiles, graphic);
             if title.is_none() {

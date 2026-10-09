@@ -1,0 +1,11 @@
+<Project>
+  <!-- Installed by `make tests` as <classicuo>/tests/ClassicUO.Ecs.Tests/ModTests/grid-containers.targets
+       (that project imports ModTests/*.targets). Compiles this repo's tests into the ECS test
+       assembly, so they drive the built mod (ecs-mods/grid-containers) through the real host. -->
+  <PropertyGroup>
+    <GridContainersRepo Condition="'$(GridContainersRepo)' == ''">$(MSBuildThisFileDirectory)..\..\..\..\grid-containers-mod\</GridContainersRepo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(GridContainersRepo)tests\*.cs" />
+  </ItemGroup>
+</Project>
