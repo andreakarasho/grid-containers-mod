@@ -484,6 +484,7 @@ fn setup(app: &mut App) {
 
 export_mod!(setup);
 
+#[system]
 fn declare_options(mut schema: ResMut<ModOptionsSchemaDto>) {
     let opt = |key: &str, label: &str, kind: u8, default: i32, keywords: &str| ModOptionDto {
         key: key.into(),
@@ -506,6 +507,7 @@ fn declare_options(mut schema: ResMut<ModOptionsSchemaDto>) {
 
 // ── snapshots ───────────────────────────────────────────────────────────────────
 
+#[system]
 fn snap_input(
     mouse: Option<Res<MouseInputDto>>,
     kb: Option<Res<KeyboardInputDto>>,
@@ -526,10 +528,12 @@ fn snap_input(
 }
 
 /// The open popups (UiPopup is a tag: no change ticks, so a plain query).
+#[system]
 fn snap_popups(popups: Query<&UiPopup>) {
     st().f.popups = popups.iter().map(|(e, _)| e).collect();
 }
 
+#[system]
 fn snap_game(
     state: Option<Res<GameStateDto>>,
     ctx: Option<Res<GameContextDto>>,
@@ -560,6 +564,7 @@ fn snap_game(
 /// The grid windows' roots (size, display, z) and their content columns' rect +
 /// scroll offset, as they change. Entries leave with their view (drop_view).
 #[allow(clippy::type_complexity)]
+#[system]
 fn snap_layout(
     moved: Query<(&Node, &GlobalZIndex), (With<GridContainerWindow>, Changed<Node>)>,
     raised: Query<(&Node, &GlobalZIndex), (With<GridContainerWindow>, Changed<GlobalZIndex>)>,
@@ -586,6 +591,7 @@ fn snap_layout(
 /// (lookups only ever ask for contained items and containers): an item moving into a
 /// container keeps the OPL it already had, which a contained-only query would only see
 /// again on its next change.
+#[system]
 fn item_feed(
     members: Query<(&ChildOf, &Serial), (With<ContainedInto>, Changed<ChildOf>)>,
     graphics: Query<(&Graphic, &Serial), (With<ContainedInto>, Changed<Graphic>)>,
@@ -617,6 +623,7 @@ fn item_feed(
 /// position with its contained state) or left the client. Every contained item carries
 /// a slot position and nothing else does, so this fires only for real departures — a
 /// ChildOf removal would also fire for every UI node the host despawns.
+#[system]
 fn on_member_gone(on: On<Remove, ContainerSlotPosition>) {
     let s = st();
     leave_member(s, on.entity().to_bits());
@@ -689,6 +696,7 @@ fn unlive(s: &mut State, serial: u32) {
 /// flag, corpses) kept, by entity. Lookups go through the serial's live entity, so a
 /// despawned container's entry is never read; those are swept by size (and on logout).
 #[allow(clippy::type_complexity)]
+#[system]
 fn snap_world(
     graphics: Query<(&Graphic, &Hue, &Serial), (With<IsItem>, Changed<Graphic>)>,
     hues: Query<(&Graphic, &Hue, &Serial), (With<IsItem>, Changed<Hue>)>,
@@ -742,6 +750,7 @@ fn sweep_world(f: &mut Frame) {
 /// What has no usable change ticks, read every frame: the player's position (the
 /// movement systems write it in place, no tick) and who opened which corpse (tags).
 /// Plain queries; see setup.
+#[system]
 fn snap_live(
     player: Query<&WorldPosition, With<Player>>,
     auto: Query<&AutoOpenedCorpse>,
@@ -755,6 +764,7 @@ fn snap_live(
 
 // ── First ───────────────────────────────────────────────────────────────────────
 
+#[system]
 fn first(mut cmds: Commands) {
     let s = st();
     if !s.f.game_screen {
@@ -1078,10 +1088,12 @@ fn boxed(a: (f32, f32), b: (f32, f32)) -> ((f32, f32), (f32, f32)) {
 
 // ── observers ───────────────────────────────────────────────────────────────────
 
+#[system]
 fn on_container_opened(ev: On<Event, ContainerOpenedEvent>, positions: Option<ResMut<ContainerPositionsDto>>, mut cmds: Commands) {
     open_window(&mut cmds, positions, ev.serial, ev.graphic);
 }
 
+#[system]
 fn on_container_closed(ev: On<Event, ContainerClosedEvent>, mut cmds: Commands) {
     let s = st();
     if let Some(view) = s.views.get(&ev.serial) {
@@ -1094,6 +1106,7 @@ fn on_container_closed(ev: On<Event, ContainerClosedEvent>, mut cmds: Commands) 
 /// container plugin despawns every ContainerItemUI carrying the updated serial —
 /// grid cells included — so an unchanged-looking item set still needs new cells.
 /// An Add also carries the item's new graphic / hue / amount.
+#[system]
 fn on_container_slot(ev: On<Event, ContainerSlotEvent>) {
     let s = st();
     if ev.action == 0 {
@@ -1110,6 +1123,7 @@ fn on_container_slot(ev: On<Event, ContainerSlotEvent>) {
 }
 
 /// Sort buttons and the pin menu's entry; handled in Update.
+#[system]
 fn on_click(click: On<Event, UiClick>) {
     let s = st();
     let e = click.entity();
@@ -1121,6 +1135,7 @@ fn on_click(click: On<Event, UiClick>) {
 }
 
 /// QuickMoveItem bound to a mouse button / the wheel: move the hovered item.
+#[system]
 fn on_hotkey(ev: On<Event, ModHotkeyFired>, pick: Option<Res<UiPickDto>>, mut cmds: Commands) {
     if ev.from_mod || ev.name != "QuickMoveItem" || ev.key != 0 {
         return;
@@ -1135,6 +1150,7 @@ fn on_hotkey(ev: On<Event, ModHotkeyFired>, pick: Option<Res<UiPickDto>>, mut cm
 
 /// A selected item was just dropped (a drag, a quick move): queue the rest of the
 /// selection for the same destination. Every drop request arrives here, one each.
+#[system]
 fn on_drop_sent(ev: On<Event, ItemDropSent>, time: Option<Res<Time>>) {
     let s = st();
     if !s.sel.serials.contains(&ev.serial) {
@@ -1146,6 +1162,7 @@ fn on_drop_sent(ev: On<Event, ItemDropSent>, time: Option<Res<Time>>) {
 
 /// The server answered the move in flight: accepted → the next one may go now;
 /// denied / dragging ended → stop (the rest would fail the same way).
+#[system]
 fn on_move_result(ev: On<Event, ItemMoveResult>) {
     let q = &mut st().queue;
     if q.wait_until == 0.0 {
@@ -1363,6 +1380,7 @@ fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositionsD
 
 // ── Update ──────────────────────────────────────────────────────────────────────
 
+#[system]
 fn update(time: Option<Res<Time>>, mut cmds: Commands) {
     let s = st();
     s.f.now = time.map_or(0.0, |t| t.total);
@@ -1709,6 +1727,7 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
 
 // ── PostUpdate (multi-move) ─────────────────────────────────────────────────────
 
+#[system]
 fn post(grabbed: Option<Res<GrabbedItem>>, time: Option<Res<Time>>, mut cmds: Commands) {
     let s = st();
     if !s.in_game {
