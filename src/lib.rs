@@ -550,7 +550,7 @@ fn snap_game(
         s.f.backpack = e.serials.get(LAYER_BACKPACK).copied().unwrap_or(0);
     }
 
-    let get = |k: &str, d: i32| values.as_ref().and_then(|v| v.values.get(k).copied()).unwrap_or(d);
+    let get = |k: &str, d: i32| values.as_ref().and_then(|v| v.values.iter().find(|o| o.key == k).map(|o| o.value)).unwrap_or(d);
     s.opts.containers = get(OPT_CONTAINERS, 0) != 0;
     s.opts.quick_move = get(OPT_QUICK_MOVE, 1) != 0;
     s.opts.multi_move = get(OPT_MULTI_MOVE, 0) != 0;
