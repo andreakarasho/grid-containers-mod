@@ -307,17 +307,17 @@ pub fn draw_stacked(graphic: u16, amount: i32, stackable: bool) -> bool {
 
 pub type Rgba = (u8, u8, u8, u8);
 
-pub const BG: Rgba = (18, 18, 18, 250);
-pub const PANEL: Rgba = (30, 30, 36, 255);
-pub const PINNED_SLOT: Rgba = (70, 60, 34, 255);
-pub const FIELD: Rgba = (54, 54, 62, 255);
-pub const CONTROL: Rgba = (46, 46, 54, 255);
-pub const FRAME: Rgba = (70, 70, 80, 255);
-pub const ACCENT: Rgba = (232, 200, 120, 255);
-pub const TEXT: Rgba = (240, 240, 244, 255);
-pub const TEXT_MUTED: Rgba = (170, 172, 180, 255);
-pub const SELECTED: Rgba = (232, 200, 120, 110);
-pub const BOX_FILL: Rgba = (232, 200, 120, 40);
+pub const BG: Rgba = (9, 12, 17, 250);
+pub const PANEL: Rgba = (16, 21, 29, 255);
+pub const PINNED_SLOT: Rgba = (20, 64, 60, 255);
+pub const FIELD: Rgba = (34, 43, 56, 255);
+pub const CONTROL: Rgba = (28, 36, 47, 255);
+pub const FRAME: Rgba = (39, 45, 54, 255);
+pub const ACCENT: Rgba = (47, 191, 174, 255);
+pub const TEXT: Rgba = (232, 237, 242, 255);
+pub const TEXT_MUTED: Rgba = (152, 162, 173, 255);
+pub const SELECTED: Rgba = (47, 191, 174, 110);
+pub const BOX_FILL: Rgba = (47, 191, 174, 40);
 
 /// The panel background for a container hue: the hue's brightest ramp cell
 /// (`tint` = GetPolygoneColor(31, hue & 0x3FFF), packed ABGR) scaled onto the dark
