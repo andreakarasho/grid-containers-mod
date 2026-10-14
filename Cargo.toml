@@ -8,9 +8,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# The SDK checkout of the client this mod is built against (its generated paths /
-# types must match that host's registry).
-cuo-mod-sdk = { path = "../cuo-agents/external/classicuo-mods-sdk/rust" }
+# Pinned SDK revision: its generated paths / types must match the client the mod loads into.
+cuo-mod-sdk = { git = "https://github.com/ClassicUO/classicuo-mods-sdk", rev = "cbd5fbe" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

@@ -1,7 +1,6 @@
 # grid-containers
 
-Grid container windows for the ClassicUO ECS client, as a Rust mod (wasm32-wasip2 component). A 1:1
-port of the client's former host `GridContainerGumpPlugin` + `GridMultiMovePlugin`:
+Grid container windows for the ClassicUO ECS client, as a Rust mod (wasm32-wasip2 component):
 
 - resizable dark panel per container, slots in a scrollable grid, container icon,
   name and weight header
@@ -21,21 +20,15 @@ character-scoped mod storage (`<character profile>/mods/grid-containers.json`).
 While grid containers are on, the mod claims `cuo:gump/container` (and `cuo:gump/corpse`
 for "grid only" loot) and the client's classic window stands down; without the mod the
 client opens classic container windows. The mod uses only the client's generic mod
-surface — no host code knows about it.
+surface — no client code knows about it.
 
 ## Build
 
 ```
-make build            # -> ../cuo-agents/ecs-mods/grid-containers/{mod.wasm,mod.json}
+make build            # -> dist/grid-containers/{mod.wasm,mod.json}
 make test             # logic unit tests (native)
-make tests            # install tests/ into the client's test project (host-driven tests)
 ```
 
-The host-driven tests (`tests/*.cs`) load the built mod through the real client. `make
-tests` installs `ModTests/grid-containers.targets` into `$(CUO_REPO)/tests/ClassicUO.Ecs.Tests`,
-which compiles them into that test assembly; run `make build`, then `dotnet test
-tests/ClassicUO.Ecs.Tests` in the client checkout.
-
-`CUO_REPO=<path>` points at another client checkout. The crate builds against that
-checkout's `external/classicuo-mods-sdk`, so its generated paths / types match the
-host registry the mod will load into.
+Copy `dist/grid-containers/` into the client's mods folder. The crate builds against a pinned
+revision of [classicuo-mods-sdk](https://github.com/ClassicUO/classicuo-mods-sdk); bump the
+`rev` in `Cargo.toml` to match the client you target.

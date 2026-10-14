@@ -1,5 +1,4 @@
-//! Pure grid logic — a straight port of the host's GridContainerGumpPlugin /
-//! GridMultiMovePlugin helpers, kept free of host calls so `cargo test` covers it.
+//! Pure grid logic, kept free of host calls so `cargo test` covers it.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -24,9 +23,9 @@ pub const PINNED_HUE: u16 = 0x038E;
 pub const PINNED_ALPHA: f32 = 0.5;
 pub const HOVER_HUE: u16 = 0x0035;
 pub const CORPSE_GUMP: u16 = 0x0009;
-/// ScrollbarGeometry.FlatWidth: the flat scrollbar's lane, reserved as right padding.
+/// The flat scrollbar's lane, reserved as right padding.
 pub const FLAT_SCROLLBAR_W: i32 = 8;
-/// UiZCounter.OverlayFloor — the lasso box sits in the pinned-overlay band.
+/// Overlay z floor — the lasso box sits in the pinned-overlay band.
 pub const OVERLAY_FLOOR: i32 = 10000;
 pub const CORPSE_MAX_DIST: i32 = 3;
 
@@ -75,7 +74,7 @@ pub struct GridItem {
     pub hue: u16,
     pub amount: u16,
     pub layer: u8,
-    /// Stackable with amount > 1: drawn twice, offset, like legacy ItemGump.
+    /// Stackable with amount > 1: drawn twice, offset, like the classic container.
     pub stacked: bool,
     /// None = the graphic is past the tiledata table and there is no OPL name.
     pub name: Option<String>,
@@ -340,7 +339,7 @@ const LAYER_HAIR: u8 = 0x0B;
 const LAYER_FACE: u8 = 0x0F;
 const LAYER_BEARD: u8 = 0x10;
 
-/// ContainerGumpPlugin.ShouldSkipSlot: un-lootable corpse layers, and hair / beard /
+/// Un-lootable corpse layers, and hair / beard /
 /// face anywhere, never get a slot.
 pub fn should_skip_slot(in_table: bool, layer: u8, flags: u64, is_corpse: bool) -> bool {
     if !in_table {
@@ -387,7 +386,7 @@ impl Keys {
         self.either(KEY_LALT, KEY_RALT)
     }
 
-    /// HotkeyPlugin.KeyHeld for one key binding: a modifier key counts either side.
+    /// Whether one key binding is held: a modifier key counts either side.
     pub fn binding_held(&self, key: i32, ctrl: bool, shift: bool, alt: bool) -> bool {
         if key == 0 {
             return false;

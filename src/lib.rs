@@ -1,6 +1,5 @@
-//! Grid containers — a port of the client's former host GridContainerGumpPlugin +
-//! GridMultiMovePlugin to an out-of-process mod, behaviour for behaviour, on the
-//! host's GENERIC mod surface only (nothing in the host knows this mod exists).
+//! Grid containers — grid container windows and multi-move as an out-of-process
+//! mod, on the client's GENERIC mod surface only (the client knows nothing of it).
 //!
 //! The window carries the host's classic container markers (ContainerWindow /
 //! ContainerGumpTag / ContainerItemUI / NoPickup / UiMovable), so the host's own
@@ -68,7 +67,7 @@ struct GridCell {
     bg: Entity,
 }
 
-/// One open grid window (the host's former GridContainerState.View).
+/// One open grid window.
 struct View {
     serial: u32,
     is_corpse: bool,
@@ -831,7 +830,7 @@ fn load_char(s: &mut State) {
 
 fn leave_game(s: &mut State, cmds: &mut Commands) {
     s.in_game = false;
-    // Logout despawns the windows (host DisposeOnLogout) without a close event.
+    // Logout despawns the windows without a close event.
     let serials: Vec<u32> = s.views.keys().copied().collect();
     for serial in serials {
         drop_view(s, serial);
@@ -987,7 +986,7 @@ fn quick_move(s: &mut State, cmds: &mut Commands, pick: &UiPickDto, by_hotkey: b
     true
 }
 
-/// HotkeyPlugin.KeyHeld(QuickMoveItem): the first key binding of the action.
+/// QuickMoveItem held: the first key binding of the action.
 fn quick_move_key_held(s: &State) -> bool {
     s.f.host_hotkeys
         .iter()
@@ -1103,7 +1102,7 @@ fn on_container_closed(ev: On<Event, ContainerClosedEvent>, mut cmds: Commands) 
 }
 
 /// Any slot event for a container forces its grid to rebuild: the host's classic
-/// container plugin despawns every ContainerItemUI carrying the updated serial —
+/// container handling despawns every ContainerItemUI carrying the updated serial —
 /// grid cells included — so an unchanged-looking item set still needs new cells.
 /// An Add also carries the item's new graphic / hue / amount.
 #[system]
@@ -1189,7 +1188,7 @@ fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositionsD
     }
 
     // Already open: the server re-sends the container on every double click, so raise
-    // the window. A negative z asks the host for the counter's top (UiZCounter.Bump).
+    // the window. A negative z asks the host for the top of the z-stack.
     if let Some(view) = s.views.get(&serial) {
         cmds.entity(view.window).insert(GlobalZIndex { value: -1 });
         return;
@@ -1220,8 +1219,8 @@ fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositionsD
             UiMovable {},
             GlobalZIndex { value: -1 },
             ContainerWindow { serial },
-            // ContainerGumpTag makes the host's DropItem recognise a drop onto this
-            // window (Case 1). Bounds = the content rect so drop coords clamp inside
+            // ContainerGumpTag makes the host recognise a drop onto this
+            // window. Bounds = the content rect so drop coords clamp inside
             // it; the grid re-lays out by slot anyway. Never updated on resize.
             ContainerGumpTagDto {
                 graphic,
@@ -1681,7 +1680,7 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
             let row = row.unwrap();
 
             // The tile: background only, so a drop on an EMPTY tile resolves to the
-            // window root (DropItem Case 1) and the drop-slot record keeps the slot.
+            // window root and the drop-slot record keeps the slot.
             let tile_e = cmds.spawn((centred(sized(CELL, CELL)), Interaction::NONE, ChildOf::new(row))).id();
             let item = (index >= 0).then(|| &list[index as usize]);
             let pinned = pinnable && item.is_some_and(|it| s.pins.contains(&it.serial));
