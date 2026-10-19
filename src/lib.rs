@@ -123,12 +123,12 @@ struct Opts {
 #[derive(Default)]
 struct Frame {
     // First: input (resources).
-    mouse: MouseInputDto,
+    mouse: MouseInput,
     keys: Keys,
-    pick: UiPickDto,
+    pick: UiPick,
     held_serial: u32,
     targeting: bool,
-    host_hotkeys: Vec<HostHotkeyDto>,
+    host_hotkeys: Vec<HostHotkey>,
     // First: game.
     game_screen: bool,
     player: (u32, String),
@@ -184,7 +184,7 @@ struct State {
     children: HashMap<u64, Vec<u64>>,
     live: HashMap<u32, u32>,
     items: HashMap<u32, Item>,
-    props: HashMap<u32, EntityPropertiesDto>,
+    props: HashMap<u32, EntityProperties>,
     props_asked: HashMap<u32, f32>,
     tiles: HashMap<u16, Option<StaticInfo>>,
     ramps: HashMap<u16, u32>,
@@ -274,12 +274,12 @@ fn hue_vec(h: (f32, f32, f32)) -> Vector3 {
     Vector3 { x: h.0, y: h.1, z: h.2 }
 }
 
-fn art(asset: u32, hue: (f32, f32, f32), stacked: bool) -> UiCustomDto {
-    UiCustomDto { kind: ART, asset_id: asset, hue_x: hue.0, hue_y: hue.1, hue_z: hue.2, stacked }
+fn art(asset: u32, hue: (f32, f32, f32), stacked: bool) -> UiCustom {
+    UiCustom { kind: ART, asset_id: asset, hue_x: hue.0, hue_y: hue.1, hue_z: hue.2, stacked }
 }
 
-fn border(c: Rgba) -> BorderColorDto {
-    BorderColorDto { r: c.0 as f32, g: c.1 as f32, b: c.2 as f32, a: c.3 as f32 }
+fn border(c: Rgba) -> BorderColor {
+    BorderColor { r: c.0 as f32, g: c.1 as f32, b: c.2 as f32, a: c.3 as f32 }
 }
 
 fn bg(c: Rgba) -> BackgroundColor {
@@ -484,8 +484,8 @@ fn setup(app: &mut App) {
 export_mod!(setup);
 
 #[system]
-fn declare_options(mut schema: ResMut<ModOptionsSchemaDto>) {
-    let opt = |key: &str, label: &str, kind: u8, default: i32, keywords: &str| ModOptionDto {
+fn declare_options(mut schema: ResMut<ModOptionsSchema>) {
+    let opt = |key: &str, label: &str, kind: u8, default: i32, keywords: &str| ModOption {
         key: key.into(),
         label: label.into(),
         group: "Grid containers".into(),
@@ -508,12 +508,12 @@ fn declare_options(mut schema: ResMut<ModOptionsSchemaDto>) {
 
 #[system]
 fn snap_input(
-    mouse: Option<Res<MouseInputDto>>,
-    kb: Option<Res<KeyboardInputDto>>,
-    pick: Option<Res<UiPickDto>>,
+    mouse: Option<Res<MouseInput>>,
+    kb: Option<Res<KeyboardInput>>,
+    pick: Option<Res<UiPick>>,
     grabbed: Option<Res<GrabbedItem>>,
     target: Option<Res<TargetingState>>,
-    hotkeys: Option<Res<HostHotkeysDto>>,
+    hotkeys: Option<Res<HostHotkeys>>,
 ) {
     // No clock here (it changes every frame and would keep this awake): `update`
     // reads it. A skipped run means every resource equals what this one copied.
@@ -534,11 +534,11 @@ fn snap_popups(popups: Query<&UiPopup>) {
 
 #[system]
 fn snap_game(
-    state: Option<Res<GameStateDto>>,
-    ctx: Option<Res<GameContextDto>>,
-    values: Option<Res<ModOptionsValuesDto>>,
-    settings: Option<Res<GameSettingsDto>>,
-    equipment: Query<&EquipmentSlotsDto, (With<Player>, Changed<EquipmentSlotsDto>)>,
+    state: Option<Res<GameState>>,
+    ctx: Option<Res<GameContext>>,
+    values: Option<Res<ModOptionsValues>>,
+    settings: Option<Res<GameSettings>>,
+    equipment: Query<&EquipmentSlots, (With<Player>, Changed<EquipmentSlots>)>,
 ) {
     let s = st();
     s.f.game_screen = state.is_some_and(|g| g.current == GAME_SCREEN);
@@ -596,7 +596,7 @@ fn item_feed(
     graphics: Query<(&Graphic, &Serial), (With<ContainedInto>, Changed<Graphic>)>,
     hues: Query<(&Hue, &Serial), (With<ContainedInto>, Changed<Hue>)>,
     amounts: Query<(&Amount, &Serial), (With<ContainedInto>, Changed<Amount>)>,
-    props: Query<&EntityPropertiesDto, Changed<EntityPropertiesDto>>,
+    props: Query<&EntityProperties, Changed<EntityProperties>>,
 ) {
     let s = st();
     for (e, (parent, serial)) in &members {
@@ -936,7 +936,7 @@ fn pin_context_menu(s: &mut State, cmds: &mut Commands) {
 /// Ctrl + left press on a cell (or the QuickMoveItem mouse/wheel binding over one):
 /// lift + drop straight into the highlighted window, else the topmost other grid
 /// window, else the backpack. Returns true when it consumed the press.
-fn quick_move(s: &mut State, cmds: &mut Commands, pick: &UiPickDto, by_hotkey: bool) -> bool {
+fn quick_move(s: &mut State, cmds: &mut Commands, pick: &UiPick, by_hotkey: bool) -> bool {
     if !s.opts.quick_move {
         return false;
     }
@@ -1088,7 +1088,7 @@ fn boxed(a: (f32, f32), b: (f32, f32)) -> ((f32, f32), (f32, f32)) {
 // ── observers ───────────────────────────────────────────────────────────────────
 
 #[system]
-fn on_container_opened(ev: On<Event, ContainerOpenedEvent>, positions: Option<ResMut<ContainerPositionsDto>>, mut cmds: Commands) {
+fn on_container_opened(ev: On<Event, ContainerOpenedEvent>, positions: Option<ResMut<ContainerPositions>>, mut cmds: Commands) {
     open_window(&mut cmds, positions, ev.serial, ev.graphic);
 }
 
@@ -1135,7 +1135,7 @@ fn on_click(click: On<Event, UiClick>) {
 
 /// QuickMoveItem bound to a mouse button / the wheel: move the hovered item.
 #[system]
-fn on_hotkey(ev: On<Event, ModHotkeyFired>, pick: Option<Res<UiPickDto>>, mut cmds: Commands) {
+fn on_hotkey(ev: On<Event, ModHotkeyFired>, pick: Option<Res<UiPick>>, mut cmds: Commands) {
     if ev.from_mod || ev.name != "QuickMoveItem" || ev.key != 0 {
         return;
     }
@@ -1175,7 +1175,7 @@ fn on_move_result(ev: On<Event, ItemMoveResult>) {
 
 // ── open / close ────────────────────────────────────────────────────────────────
 
-fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositionsDto>>, serial: u32, graphic: u16) {
+fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositions>>, serial: u32, graphic: u16) {
     let s = st();
     if !s.in_game || graphic == 0xFFFF || graphic == 0x0030 {
         return;
@@ -1222,7 +1222,7 @@ fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositionsD
             // ContainerGumpTag makes the host recognise a drop onto this
             // window. Bounds = the content rect so drop coords clamp inside
             // it; the grid re-lays out by slot anyway. Never updated on resize.
-            ContainerGumpTagDto {
+            ContainerGumpTag {
                 graphic,
                 original_graphic: graphic,
                 scale: 1.0,
@@ -1603,7 +1603,7 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
             }
             let it = s.items.get(&item_serial).cloned().unwrap_or_default();
             let tl = tile(&mut s.tiles, it.graphic);
-            let (in_table, layer, flags) = tl.as_ref().map_or((false, 0, 0), |t| (true, t.layer, t.flags));
+            let (in_table, layer, flags) = tl.as_ref().map_or((false, 0, 0), |t| (true, t.layer as u8, t.flags));
             // Same filter the classic window applies.
             if should_skip_slot(in_table, layer, flags, is_corpse) {
                 continue;
