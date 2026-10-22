@@ -1326,7 +1326,7 @@ fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositions>
             content,
             Interaction::NONE,
             ScrollPosition::default(),
-            UiScrollbar { width: 0.0, style: scrollbar_style::FLAT },
+            UiScrollbar { width: 0.0, style: ui_scrollbar_style::FLAT },
             ChildOf::new(wrap),
         ))
         .id();
