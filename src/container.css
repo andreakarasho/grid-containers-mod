@@ -1,0 +1,68 @@
+/* Look of a grid container window (grid-containers-mod).
+   The mod counts on a few sizes: a cell is 50px (it sets the columns of #slots itself), and rows
+   and drops are worked out from a 56px header, a 24px footer and 8px side insets.
+   Avoid :hover on .slot: it would catch the drop that lands on an empty slot.
+   Backgrounds over #frame are translucent, so a dyed bag's tint shows through them. */
+
+body { margin: 0; width: 100%; height: 100%; font-family: sans-serif; font-size: 12px; color: rgb(232, 237, 242) }
+button { display: flex; justify-content: center; align-items: center; flex-shrink: 0; padding: 0; border: none; font-family: sans-serif }
+
+#frame {
+  position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: 100%; height: 100%;
+  background-color: rgba(13, 17, 23, 0.97); border: 1px solid rgb(52, 61, 74); border-radius: 8px; -cuo-border-layout: true;
+  box-shadow: 0 6px 18px 0 rgba(0, 0, 0, 0.45);
+}
+/* The destination of a quick move. */
+#frame.target { border-color: rgb(47, 191, 174) }
+#frame.target #title { color: rgb(94, 222, 206) }
+
+#header {
+  display: flex; flex-direction: column; flex-shrink: 0; gap: 4px; box-sizing: border-box; height: 56px; padding: 5px 8px;
+  background-color: rgba(255, 255, 255, 0.05); border-radius: 7px 7px 0 0;
+}
+#titlebar { display: flex; align-items: center; flex-shrink: 0; gap: 6px; height: 22px }
+#icon { width: 22px; height: 22px; flex-shrink: 0 }
+#title { display: flex; align-items: center; flex-grow: 1; min-width: 0; height: 22px; overflow: hidden; white-space: nowrap; font-size: 13px; font-weight: bold }
+#close { width: 18px; height: 18px; background-color: transparent; border-radius: 4px; color: rgb(152, 162, 173); font-size: 11px }
+#close:hover { background-color: rgb(166, 58, 58); color: rgb(255, 255, 255) }
+
+#tools { display: flex; flex-shrink: 0; gap: 4px; height: 20px }
+#search-box { position: relative; display: flex; flex-grow: 1; min-width: 0; height: 20px }
+#search {
+  flex-grow: 1; min-width: 0; height: 20px; box-sizing: border-box; padding: 0 0 0 6px; border: none;
+  background-color: rgba(0, 0, 0, 0.35); border-radius: 4px; color: rgb(232, 237, 242); font-family: sans-serif; font-size: 12px;
+}
+/* Above the field, without a hit target: a click goes through to it. */
+#hint { position: absolute; left: 6px; top: 0; display: flex; align-items: center; height: 20px; color: rgb(110, 120, 132) }
+#sort { width: 76px; height: 20px; background-color: rgba(255, 255, 255, 0.08); border-radius: 4px; color: rgb(214, 221, 228); font-size: 11px }
+#sort:hover { background-color: rgba(255, 255, 255, 0.16) }
+
+#slots {
+  display: grid; grid-auto-rows: 50px; align-content: start; flex-grow: 1; min-height: 0; margin: 0 8px;
+  overflow-y: scroll; scrollbar-color: rgb(58, 67, 80) transparent; scrollbar-width: 8px;
+}
+.slot {
+  position: relative; width: 46px; height: 46px; margin: 2px;
+  background-color: rgba(255, 255, 255, 0.025); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 5px;
+}
+.slot.filled { background-color: rgba(255, 255, 255, 0.075); border-color: rgba(255, 255, 255, 0.13) }
+.slot.pinned { background-color: rgba(47, 191, 174, 0.14); border-color: rgba(47, 191, 174, 0.55) }
+.slot.selected { background-color: rgba(47, 191, 174, 0.38); border-color: rgb(47, 191, 174) }
+.art { position: absolute; left: 0; top: 0; width: 100%; height: 100% }
+.amount {
+  display: none; position: absolute; right: 1px; bottom: 1px; height: 12px; padding: 0 3px; align-items: center;
+  background-color: rgba(0, 0, 0, 0.72); border-radius: 3px; color: rgb(244, 247, 250); font-size: 10px; font-weight: bold;
+}
+.stack .amount { display: flex }
+
+#footer { display: flex; flex-direction: column; flex-shrink: 0; gap: 3px; box-sizing: border-box; height: 24px; padding: 3px 18px 0 10px; color: rgb(152, 162, 173); font-size: 11px }
+#meter { flex-shrink: 0; height: 3px; background-color: rgba(255, 255, 255, 0.08); border-radius: 2px }
+#load { width: 0; height: 3px; background-color: rgb(47, 191, 174); border-radius: 2px }
+#load.heavy { background-color: rgb(224, 138, 64) }
+#stats { display: flex; justify-content: space-between; align-items: center; height: 13px; white-space: nowrap }
+
+/* The corner mark of the resize grip. */
+#grip {
+  position: absolute; right: 3px; bottom: 3px; box-sizing: border-box; width: 10px; height: 10px;
+  border-right: 2px solid rgb(84, 95, 110); border-bottom: 2px solid rgb(84, 95, 110); border-radius: 0 0 4px 0;
+}

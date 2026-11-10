@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- One grid container window (grid-containers-mod). The mod fills #title, #count, #weight, #hint and
+     #icon, labels #sort, sizes #load, tints #frame for a dyed bag and adds .target to the quick-move
+     destination. It clones the templates into #slots and draws each item inside [data-part=art]. -->
+<html>
+<head><link rel="stylesheet" href="container.css"></head>
+<body>
+  <template id="slot"><div class="slot"></div></template>
+  <template id="item">
+    <div class="slot filled"><div class="art" data-part="art"></div><div class="amount" data-part="amount"></div></div>
+  </template>
+  <div id="frame">
+    <div id="header">
+      <div id="titlebar">
+        <img id="icon" src="art:0">
+        <div id="title"></div>
+        <button id="close" data-action="mod" data-arg="close">X</button>
+      </div>
+      <div id="tools">
+        <div id="search-box">
+          <input id="search">
+          <div id="hint"></div>
+        </div>
+        <button id="sort" data-action="mod" data-arg="sort">Sort: Free</button>
+      </div>
+    </div>
+    <div id="slots"></div>
+    <div id="footer">
+      <div id="meter"><div id="load"></div></div>
+      <div id="stats">
+        <div id="count"></div>
+        <div id="weight"></div>
+      </div>
+    </div>
+    <div id="grip"></div>
+  </div>
+</body>
+</html>

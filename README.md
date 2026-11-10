@@ -2,8 +2,8 @@
 
 Grid container windows for the ClassicUO ECS client, as a Rust mod (wasm32-wasip2 component):
 
-- resizable dark panel per container, slots in a scrollable grid, container icon,
-  name and weight header
+- resizable dark panel per container, slots in a scrollable grid, stack amounts, container
+  icon and name, close button, item count and weight meter
 - search (by OPL / tiledata name) and sort (Free / Name / Layer / Type)
 - free placement remembered per container
 - pin items in the backpack (right-click a cell)
@@ -11,6 +11,9 @@ Grid container windows for the ClassicUO ECS client, as a Rust mod (wasm32-wasip
   last clicked grid window
 - multi-move: Shift+drag on empty space selects, moving one moves them all
 - corpse grid (`GridLootType`), with SkipEmptyCorpse and the out-of-range close
+
+The window is an HTML/CSS page, `src/container.html` and `src/container.css`. It is exported once to
+`Data/Mods/grid-containers/ui/`, where a player can restyle it; saving reloads the open windows.
 
 Settings are on the client's Options window, **Mods > Grid containers** (declared via
 `cuo:options/schema`, stored per character in the profile). The corpse grid follows the

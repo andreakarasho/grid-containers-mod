@@ -1,13 +1,15 @@
 //! Grid containers — grid container windows and multi-move as an out-of-process
 //! mod, on the client's GENERIC mod surface only (the client knows nothing of it).
 //!
-//! The window carries the host's classic container markers (ContainerWindow /
-//! ContainerGumpTag / ContainerItemUI / NoPickup / UiMovable), so the host's own
-//! pickup, drop, double-click, hover hue, tooltip, targeting, right-click close,
+//! The window is an HTML/CSS page (container.html / container.css), exported to
+//! Data/Mods/grid-containers/ui/ where a player can restyle it. Its root carries the
+//! host's classic container markers (ContainerWindow / ContainerGumpTag) and each item
+//! is an art node with ContainerItemUI / NoPickup inside a cloned slot, so the host's
+//! own pickup, drop, double-click, hover hue, tooltip, targeting, right-click close,
 //! z-stack, distance close and gumps.xml save drive it like a native container. The
-//! mod owns layout + rebuild, the header, sort, search, pins, free placement, quick
-//! move and multi-move. Settings live on the Options window's "Mods" page; pins and
-//! the free-slot layout in character-scoped mod storage.
+//! mod owns rebuild, sort, search, pins, free placement, quick move and multi-move.
+//! Settings live on the Options window's "Mods" page; pins and the free-slot layout in
+//! character-scoped mod storage.
 //!
 //! The client pushes each system the data its parameters declare, so every stage
 //! starts with small "snapshot" systems copying what the stage's logic reads into
@@ -49,6 +51,9 @@ const CORPSE_GRAPHIC: u16 = 0x2006;
 const WORLD_SWEEP_MIN: usize = 512;
 const GAME_SCREEN: u8 = 6;
 const NAME_REFRESH_MS: f32 = 1000.0;
+const PAGE: &str = "container";
+const PAGE_HTML: &str = include_str!("container.html");
+const PAGE_CSS: &str = include_str!("container.css");
 
 // Option keys (cuo:options/schema).
 const OPT_CONTAINERS: &str = "containers";
@@ -58,13 +63,14 @@ const OPT_MULTI_WAIT: &str = "multi_move_wait";
 
 // ── state ───────────────────────────────────────────────────────────────────────
 
-/// One item cell of a view's current slot tree.
+/// One item cell of a view's current slots.
 struct GridCell {
     slot: usize,
     serial: u32,
     pinned: bool,
     entity: Entity,
-    bg: Entity,
+    /// The slot element the item sits in.
+    bg: u64,
 }
 
 /// One open grid window.
@@ -73,23 +79,30 @@ struct View {
     is_corpse: bool,
     sort: Sort,
     last_sig: Option<u64>,
+    /// The page's window root.
     window: Entity,
-    content: Entity,
-    search: Entity,
-    title: Entity,
-    sort_btn: Entity,
-    icon: Entity,
-    weight: Entity,
-    /// Rows of the current slot tree (despawned with their cells on rebuild).
-    rows: Vec<Entity>,
+    /// #slots, 0 until the page has loaded. A reload of the page makes a new one.
+    content: u64,
     cells: Vec<GridCell>,
-    title_text: String,
-    weight_text: String,
-    sort_text: String,
-    icon_asset: u32,
-    panel: Rgba,
-    border: Rgba,
+    /// What each element was last told, to skip the host call while nothing changes.
+    sent: HashMap<&'static str, String>,
+    targeted: bool,
+    heavy: bool,
     loot: Option<(u64, u64)>,
+}
+
+impl View {
+    fn page(&self) -> u64 {
+        self.window.to_bits()
+    }
+
+    fn send(&mut self, id: &'static str, value: String, change: impl FnOnce(String) -> host::PageChange) {
+        if self.sent.get(id) == Some(&value) {
+            return;
+        }
+        self.sent.insert(id, value.clone());
+        host::page_edit(self.page(), id, &change(value));
+    }
 }
 
 /// What the item feed knows about one contained item.
@@ -147,8 +160,6 @@ struct Frame {
     player_weight: Option<(u16, u16)>,
     auto_corpses: HashSet<u64>,
     manual_corpses: HashSet<u64>,
-    /// Our search fields' text, by field entity bits.
-    texts: HashMap<u64, String>,
     // Update, every frame: the clock (`update`), the player's position (snap_live).
     now: f32,
     player_pos: Option<WorldPosition>,
@@ -188,7 +199,6 @@ struct State {
     props_asked: HashMap<u32, f32>,
     tiles: HashMap<u16, Option<StaticInfo>>,
     ramps: HashMap<u16, u32>,
-    sort_clicks: Vec<u32>,
     pin_clicked: bool,
     f: Frame,
 }
@@ -201,7 +211,7 @@ fn st() -> &'static mut State {
     unsafe {
         (*std::ptr::addr_of_mut!(STATE)).get_or_insert_with(|| State {
             views: BTreeMap::new(),
-            last_size: (320, 300),
+            last_size: DEFAULT_SIZE,
             data: CharData::default(),
             pins: HashSet::new(),
             pins_seen: HashSet::new(),
@@ -226,7 +236,6 @@ fn st() -> &'static mut State {
             props_asked: HashMap::new(),
             tiles: HashMap::new(),
             ramps: HashMap::new(),
-            sort_clicks: vec![],
             pin_clicked: false,
             f: Frame::default(),
         })
@@ -239,35 +248,14 @@ fn col(c: Rgba) -> Color {
     Color::rgba(c.0, c.1, c.2, c.3)
 }
 
-fn grow() -> Val {
-    Val { type_: val_type::GROW, value: 0.0, is_auto: false }
-}
-
-fn px(v: i32) -> Val {
-    Val::px(v as f32)
-}
-
-fn flex(w: Val, h: Val) -> Node {
-    Node { width: w, height: h, ..Node::base() }
-}
-
 fn sized(w: i32, h: i32) -> Node {
-    flex(px(w), px(h))
-}
-
-fn column(mut n: Node) -> Node {
-    n.flex_direction = flex_direction::COLUMN;
-    n
+    Node { width: Val::px(w as f32), height: Val::px(h as f32), ..Node::base() }
 }
 
 fn centred(mut n: Node) -> Node {
     n.justify_content = justify_content::CENTER;
     n.align_items = align_items::CENTER;
     n
-}
-
-fn pad(l: i32, r: i32, top: i32, b: i32) -> UiRect {
-    UiRect { left: px(l), right: px(r), top: px(top), bottom: px(b) }
 }
 
 fn hue_vec(h: (f32, f32, f32)) -> Vector3 {
@@ -292,26 +280,6 @@ fn px_or(v: &Val, fallback: i32) -> i32 {
     } else {
         fallback
     }
-}
-
-fn set_text(cmds: &mut Commands, entity: Entity, cache: &mut String, value: Option<&str>) {
-    let Some(value) = value else { return };
-    if cache == value {
-        return;
-    }
-    *cache = value.to_string();
-    cmds.entity(entity).insert(Text { value: value.to_string() });
-}
-
-fn label(node: Node, color: Rgba, size: u16) -> (Node, Text, TextFont, TextColor, TextWrap, Interaction) {
-    (
-        node,
-        Text::default(),
-        TextFont { font_id: 1, size },
-        TextColor { value: col(color) },
-        TextWrap { kind: text_wrap_kind::NONE },
-        Interaction::NONE,
-    )
 }
 
 fn consume_mouse(cmds: &mut Commands, button: u8) {
@@ -368,8 +336,8 @@ fn window_z(s: &State, window: Entity) -> i32 {
     s.f.windows.get(&window.to_bits()).map_or(i32::MIN, |w| w.1)
 }
 
-fn content_rect(s: &State, content: Entity) -> Option<(ComputedNode, f32)> {
-    s.f.contents.get(&content.to_bits()).cloned()
+fn content_rect(s: &State, content: u64) -> Option<(ComputedNode, f32)> {
+    s.f.contents.get(&content).cloned()
 }
 
 fn contains(c: &ComputedNode, x: f32, y: f32) -> bool {
@@ -409,24 +377,20 @@ fn invalidate_all(s: &mut State) {
     }
 }
 
-/// Forget a view's slot tree (`cmds` = also despawn its rows, the cells go with them).
-fn forget_tree(view: &mut View, tinted: &mut HashSet<(u32, usize)>, cmds: Option<&mut Commands>) {
-    if let Some(cmds) = cmds {
-        for row in &view.rows {
-            cmds.entity(*row).despawn();
-        }
+/// Forget a view's slots (`clear` = also remove them from the page; the items go with them).
+fn forget_tree(view: &mut View, tinted: &mut HashSet<(u32, usize)>, clear: bool) {
+    if clear {
+        host::page_clear(view.page(), "slots");
     }
-    view.rows.clear();
     view.cells.clear();
     tinted.retain(|t| t.0 != view.serial);
 }
 
 fn drop_view(s: &mut State, serial: u32) {
     if let Some(mut view) = s.views.remove(&serial) {
-        forget_tree(&mut view, &mut s.tinted, None);
+        forget_tree(&mut view, &mut s.tinted, false);
         s.f.windows.remove(&view.window.to_bits());
-        s.f.contents.remove(&view.content.to_bits());
-        s.f.texts.remove(&view.search.to_bits());
+        s.f.contents.remove(&view.content);
     }
 }
 
@@ -577,7 +541,7 @@ fn snap_layout(
         }
     }
     for (e, (c, p)) in laid_out.iter().chain(scrolled.iter()) {
-        if s.views.values().any(|v| v.content == e) {
+        if s.views.values().any(|v| v.content == e.to_bits()) {
             s.f.contents.insert(e.to_bits(), (c.clone(), p.offset_y));
         }
     }
@@ -685,8 +649,7 @@ fn unlive(s: &mut State, serial: u32) {
     }
 }
 
-/// Container looks + positions, the player's weight and our search fields' text, as
-/// they change.
+/// Container looks + positions and the player's weight, as they change.
 ///
 /// Containers: the host's IsContainer is a tag (no change ticks) that lands only when
 /// a container's contents first arrive — long after its graphic did — so a
@@ -701,7 +664,6 @@ fn snap_world(
     hues: Query<(&Graphic, &Hue, &Serial), (With<IsItem>, Changed<Hue>)>,
     moved: Query<(&WorldPosition, &Graphic, &Serial), (With<IsItem>, Changed<WorldPosition>)>,
     player_data: Query<&PlayerData, (With<Player>, Changed<PlayerData>)>,
-    texts: Query<&Text, (With<EditableText>, Changed<Text>)>,
 ) {
     let s = st();
     for (e, (g, h, serial)) in graphics.iter().chain(hues.iter()) {
@@ -721,11 +683,6 @@ fn snap_world(
     sweep_world(&mut s.f);
     if let Some((_, d)) = player_data.single() {
         s.f.player_weight = Some((d.weight, d.weight_max));
-    }
-    for (e, t) in &texts {
-        if s.views.values().any(|v| v.search == e) {
-            s.f.texts.insert(e.to_bits(), t.value.clone());
-        }
     }
 }
 
@@ -1121,15 +1078,12 @@ fn on_container_slot(ev: On<Event, ContainerSlotEvent>) {
     }
 }
 
-/// Sort buttons and the pin menu's entry; handled in Update.
+/// The pin menu's entry; handled in Update.
 #[system]
 fn on_click(click: On<Event, UiClick>) {
     let s = st();
-    let e = click.entity();
-    if s.pin_menu.is_some_and(|(_, _, _, entry)| entry == e) {
+    if s.pin_menu.is_some_and(|(_, _, _, entry)| entry == click.entity()) {
         s.pin_clicked = true;
-    } else if let Some(view) = s.views.values().find(|v| v.sort_btn == e) {
-        s.sort_clicks.push(view.serial);
     }
 }
 
@@ -1205,150 +1159,44 @@ fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositions>
         }
     }
 
-    // Root: the floating window, laid out as a column — header, content, footer.
-    let mut root_node = column(Node::abs(left as f32, top as f32, w as f32, h as f32));
-    root_node.border = UiRect::splat(Val::px(2.0));
+    let Some(page) = host::page_spawn(PAGE, PAGE_HTML, PAGE_CSS, left, top) else { return };
+    let window = Entity::from_bits(page);
+    let mut root = Node::abs(left as f32, top as f32, w as f32, h as f32);
+    root.display = display::FLEX;
     let container_ent = resolve(serial);
-    let window = cmds
-        .spawn((
-            root_node,
-            bg(BG),
-            border(FRAME),
-            BorderRadius::all(8.0),
-            Interaction::NONE,
-            UiMovable {},
-            GlobalZIndex { value: -1 },
-            ContainerWindow { serial },
-            // ContainerGumpTag makes the host recognise a drop onto this
-            // window. Bounds = the content rect so drop coords clamp inside
-            // it; the grid re-lays out by slot anyway. Never updated on resize.
-            ContainerGumpTag {
-                graphic,
-                original_graphic: graphic,
-                scale: 1.0,
-                bounds_x: INSET,
-                bounds_y: HEADER_H,
-                bounds_w: w - INSET * 2,
-                bounds_h: content_h(h),
-            },
-            GridContainerWindow { serial },
-            // The bottom-right grip is the host's resize gesture, grabbed over the grip
-            // square drawn in the footer (14 px, 2 px in from the corner), whole pixels.
-            UiResizable {
-                min_w: MIN_WIN as f32,
-                min_h: MIN_WIN as f32,
-                max_w: MAX_WIN as f32,
-                max_h: MAX_WIN as f32,
-                grip: GRIP as f32,
-                grip_inset: 2.0,
-                whole_pixels: true,
-            },
-        ))
-        .id();
+    cmds.entity(window).insert((
+        root,
+        GlobalZIndex { value: -1 },
+        ContainerWindow { serial },
+        // ContainerGumpTag makes the host recognise a drop onto this
+        // window. Bounds = the content rect so drop coords clamp inside
+        // it; the grid re-lays out by slot anyway. Never updated on resize.
+        ContainerGumpTag {
+            graphic,
+            original_graphic: graphic,
+            scale: 1.0,
+            bounds_x: INSET,
+            bounds_y: HEADER_H,
+            bounds_w: w - INSET * 2,
+            bounds_h: content_h(h),
+        },
+        GridContainerWindow { serial },
+        // The bottom-right grip is the host's resize gesture, grabbed over the page's
+        // #grip (14 px, 2 px in from the corner), whole pixels.
+        UiResizable {
+            min_w: MIN_WIN as f32,
+            min_h: MIN_WIN as f32,
+            max_w: MAX_WIN as f32,
+            max_h: MAX_WIN as f32,
+            grip: GRIP as f32,
+            grip_inset: 2.0,
+            whole_pixels: true,
+        },
+    ));
     if is_corpse {
         cmds.entity(window)
             .insert(GridLootWindow { corpse_serial: serial, corpse_entity: container_ent, content_sig: -1 });
     }
-
-    // Header: [icon] [title / (search · sort)], 4 below the frame, 4 above the grid.
-    let mut header = flex(grow(), px(HEADER_H));
-    header.padding = pad(INSET, INSET, 4, 4);
-    header.gap = px(HEADER_GAP);
-    let header = cmds.spawn((header, Interaction::NONE, ChildOf::new(window))).id();
-
-    // The icon sits 2 below the title row (y 6 vs 4).
-    let mut icon_col = column(flex(px(ICON_SIZE), Val::auto()));
-    icon_col.padding = pad(0, 0, ICON_TOP - 4, 0);
-    let icon_col = cmds.spawn((icon_col, Interaction::NONE, ChildOf::new(header))).id();
-    let icon = cmds
-        .spawn((sized(ICON_SIZE, ICON_SIZE), art(0, (0.0, 0.0, 0.0), false), Interaction::NONE, ChildOf::new(icon_col)))
-        .id();
-
-    let mut head_col = column(flex(grow(), Val::auto()));
-    head_col.gap = px(HEADER_GAP);
-    let head_col = cmds.spawn((head_col, Interaction::NONE, ChildOf::new(header))).id();
-
-    let mut title = centred(flex(grow(), px(TITLE_H)));
-    title.overflow = overflow::CLIP;
-    let title = cmds.spawn((label(title, TEXT, 12), ChildOf::new(head_col))).id();
-
-    let mut search_row = flex(grow(), px(18));
-    search_row.gap = px(HEADER_GAP);
-    let search_row = cmds.spawn((search_row, Interaction::NONE, ChildOf::new(head_col))).id();
-
-    // Search field (filters by item name): a self-editable field — the host focuses it
-    // on press and its shared editor owns the keystrokes and the caret.
-    let mut search = flex(grow(), px(18));
-    search.align_items = align_items::CENTER;
-    search.padding = pad(5, 0, 0, 0);
-    search.overflow = overflow::CLIP;
-    let search = cmds
-        .spawn((
-            search,
-            bg(FIELD),
-            BorderRadius::all(4.0),
-            Text::default(),
-            TextFont { font_id: 1, size: 12 },
-            TextColor { value: col(TEXT) },
-            Interaction::NONE,
-            UiContainsByBounds {},
-            UiNoWindowDrag {},
-            TextInput {},
-            EditableText { multiline: false },
-            ChildOf::new(search_row),
-        ))
-        .id();
-
-    // Sort button (cycles Free/Name/Layer/Type; caption tracks the mode).
-    let sort_btn = cmds
-        .spawn((
-            centred(sized(SORT_W, 18)),
-            bg(CONTROL),
-            BorderRadius::all(4.0),
-            Text { value: Sort::Free.label().into() },
-            TextFont { font_id: 1, size: 11 },
-            TextColor { value: col(TEXT) },
-            Interaction::NONE,
-            UiNoWindowDrag {},
-            ChildOf::new(search_row),
-        ))
-        .id();
-
-    // The scrollable item column; the flat scrollbar's lane is reserved as right
-    // padding, which cols() leaves room for.
-    let mut wrap = flex(grow(), grow());
-    wrap.padding = pad(INSET, INSET, 0, 0);
-    let wrap = cmds.spawn((wrap, Interaction::NONE, ChildOf::new(window))).id();
-    let mut content = column(flex(grow(), grow()));
-    content.overflow = overflow::SCROLL;
-    let content = cmds
-        .spawn((
-            content,
-            Interaction::NONE,
-            ScrollPosition::default(),
-            UiScrollbar { width: 0.0, style: ui_scrollbar_style::FLAT },
-            ChildOf::new(wrap),
-        ))
-        .id();
-
-    // Footer: the weight readout centred under the grid, the grip in the corner.
-    let mut footer = flex(grow(), px(FOOTER_H + INSET));
-    footer.padding = pad(INSET * 2, 2, 0, 2);
-    let footer = cmds.spawn((footer, Interaction::NONE, ChildOf::new(window))).id();
-    let mut weight = centred(flex(grow(), px(FOOTER_H)));
-    weight.overflow = overflow::CLIP;
-    let weight = cmds.spawn((label(weight, TEXT_MUTED, 12), ChildOf::new(footer))).id();
-    let mut grip_col = column(flex(px(GRIP), grow()));
-    grip_col.justify_content = justify_content::END;
-    let grip_col = cmds.spawn((grip_col, Interaction::NONE, ChildOf::new(footer))).id();
-    cmds.spawn((
-        sized(GRIP, GRIP),
-        bg(FRAME),
-        BorderRadius::all(4.0),
-        Interaction::NONE,
-        UiNoWindowDrag {},
-        ChildOf::new(grip_col),
-    ));
 
     s.views.insert(
         serial,
@@ -1358,20 +1206,11 @@ fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositions>
             sort: Sort::Free,
             last_sig: None,
             window,
-            content,
-            search,
-            title,
-            sort_btn,
-            icon,
-            weight,
-            rows: vec![],
+            content: 0,
             cells: vec![],
-            title_text: String::new(),
-            weight_text: String::new(),
-            sort_text: Sort::Free.label().into(),
-            icon_asset: 0,
-            panel: BG,
-            border: FRAME,
+            sent: HashMap::new(),
+            targeted: false,
+            heavy: false,
             loot: None,
         },
     );
@@ -1383,16 +1222,21 @@ fn open_window(cmds: &mut Commands, positions: Option<ResMut<ContainerPositions>
 fn update(time: Option<Res<Time>>, mut cmds: Commands) {
     let s = st();
     s.f.now = time.map_or(0.0, |t| t.total);
-    let sort_clicks = std::mem::take(&mut s.sort_clicks);
     let pin_clicked = std::mem::take(&mut s.pin_clicked);
     if !s.in_game {
         return;
     }
 
-    for serial in sort_clicks {
-        if let Some(view) = s.views.get_mut(&serial) {
-            view.sort = view.sort.next();
-            view.last_sig = None;
+    for view in s.views.values_mut() {
+        for click in host::page_clicks(view.page()) {
+            match click.as_str() {
+                "sort" => {
+                    view.sort = view.sort.next();
+                    view.last_sig = None;
+                }
+                "close" => actions::close_container(view.serial),
+                _ => {}
+            }
         }
     }
     if pin_clicked {
@@ -1409,7 +1253,7 @@ fn update(time: Option<Res<Time>>, mut cmds: Commands) {
         }
     }
 
-    highlight_quick_move_target(s, &mut cmds);
+    highlight_quick_move_target(s);
     if s.f.held_serial == 0 {
         prune_pins(s);
     }
@@ -1420,17 +1264,17 @@ fn update(time: Option<Res<Time>>, mut cmds: Commands) {
     rebuild_grids(s, &mut cmds);
 }
 
-/// Accent ring on the quick-move destination, the theme frame on every other window
-/// (same width, so flipping it never moves the contents).
-fn highlight_quick_move_target(s: &mut State, cmds: &mut Commands) {
+/// Accent ring on the quick-move destination (the page's `.target`).
+fn highlight_quick_move_target(s: &mut State) {
     let target = s.target;
     for view in s.views.values_mut() {
-        let want = if s.opts.quick_move && view.serial == target { ACCENT } else { FRAME };
-        if view.border == want {
+        let want = s.opts.quick_move && view.serial == target;
+        if view.targeted == want {
             continue;
         }
-        view.border = want;
-        cmds.entity(view.window).insert(border(want));
+        view.targeted = want;
+        let class = "target".to_string();
+        host::page_edit(view.page(), "frame", &if want { host::PageChange::AddClass(class) } else { host::PageChange::RemoveClass(class) });
     }
 }
 
@@ -1518,7 +1362,24 @@ fn record_drop_slot(s: &mut State) {
     save_char(s);
 }
 
-/// Rebuild a window's slot tree when its signature changes; the header refreshes every
+/// The page loaded or reloaded (new elements, and the old slots are gone): start over.
+fn sync_page(view: &mut View, tinted: &mut HashSet<(u32, usize)>, contents: &mut HashMap<u64, (ComputedNode, f32)>, cmds: &mut Commands) {
+    let content = host::page_element(view.page(), "slots").unwrap_or(0);
+    if content == view.content {
+        return;
+    }
+    contents.remove(&view.content);
+    view.content = content;
+    view.last_sig = None;
+    forget_tree(view, tinted, false);
+    for id in ["sort", "close", "grip"] {
+        if let Some(e) = host::page_element(view.page(), id) {
+            cmds.entity(Entity::from_bits(e)).insert(UiNoWindowDrag {});
+        }
+    }
+}
+
+/// Rebuild a window's slots when its signature changes; the header refreshes every
 /// frame before the gate (late OPL data lands the frame it arrives). Never rebuilds
 /// while an item is on the cursor, so a drag isn't interrupted.
 fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
@@ -1531,6 +1392,7 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
         if container == 0 {
             continue;
         }
+        sync_page(s.views.get_mut(&serial).unwrap(), &mut s.tinted, &mut s.f.contents, cmds);
         let pinnable = in_backpack(s, container, backpack_ent);
 
         let props = s.props.get(&serial).cloned();
@@ -1549,14 +1411,13 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
             let ramp = if hue & 0x3FFF == 0 { 0 } else { ramp31(&mut s.ramps, hue & 0x3FFF) };
             let tinted = panel_color(hue, ramp);
             let view = s.views.get_mut(&serial).unwrap();
-            if view.icon_asset != graphic as u32 {
-                view.icon_asset = graphic as u32;
-                cmds.entity(view.icon).insert(art(graphic as u32, hue_vector(hue, 1.0), false));
-            }
-            // A dyed bag tints its own window (hue 0 = the plain panel).
-            if view.panel != tinted {
-                view.panel = tinted;
-                cmds.entity(view.window).insert(bg(tinted));
+            view.send("icon", format!("art:{graphic}?hue={}", hue & 0x7FFF), |v| host::PageChange::Attr(("src".into(), v)));
+            // A dyed bag tints its own window (hue 0 = what the page says).
+            if tinted == BG {
+                view.send("frame", String::new(), |_| host::PageChange::ClearStyle("background-color".into()));
+            } else {
+                let tint = format!("rgba({}, {}, {}, {})", tinted.0, tinted.1, tinted.2, tinted.3 as f32 / 255.0);
+                view.send("frame", tint, |v| host::PageChange::Style(("background-color".into(), v)));
             }
         }
         let weight = if serial == s.f.backpack {
@@ -1570,10 +1431,19 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
         });
         {
             let view = s.views.get_mut(&serial).unwrap();
-            let (title_ent, weight_ent, sort_ent) = (view.title, view.weight, view.sort_btn);
-            set_text(cmds, title_ent, &mut view.title_text, title.as_deref());
-            set_text(cmds, weight_ent, &mut view.weight_text, Some(&weight));
-            set_text(cmds, sort_ent, &mut view.sort_text, Some(view.sort.label()));
+            if let Some(title) = title {
+                view.send("title", title, host::PageChange::Text);
+            }
+            let load = load_percent(&weight);
+            view.send("weight", weight, host::PageChange::Text);
+            view.send("load", format!("{}%", load.unwrap_or(0)), |v| host::PageChange::Style(("width".into(), v)));
+            let heavy = load.is_some_and(|p| p >= HEAVY_PERCENT);
+            if view.heavy != heavy {
+                view.heavy = heavy;
+                let class = "heavy".to_string();
+                host::page_edit(view.page(), "load", &if heavy { host::PageChange::AddClass(class) } else { host::PageChange::RemoveClass(class) });
+            }
+            view.send("sort", format!("Sort: {}", view.sort.label()), host::PageChange::Text);
         }
 
         if s.f.held_serial != 0 {
@@ -1588,7 +1458,7 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
         s.last_size = (w, hh);
         let cols = cols(w);
         let visible_rows = (content_h(hh) / CELL).max(1);
-        let query = s.f.texts.get(&view.search.to_bits()).map(|t| t.trim().to_string()).unwrap_or_default();
+        let query = host::page_value(view.page(), "search").map(|t| t.trim().to_string()).unwrap_or_default();
         let (is_corpse, sort) = (view.is_corpse, view.sort);
         let need_names = !query.is_empty() || matches!(sort, Sort::Name | Sort::Layer);
 
@@ -1638,6 +1508,8 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
         let sig = sig(&list, &layout, cols, &query, sort);
 
         let view = s.views.get_mut(&serial).unwrap();
+        view.send("count", count_label(list.len()), host::PageChange::Text);
+        view.send("hint", if query.is_empty() { "Search".to_string() } else { String::new() }, host::PageChange::Text);
         // SkipEmptyCorpse: an auto-opened corpse that turns out empty stays hidden
         // (legacy GridLootGump._hideIfEmpty). Manual opens always show.
         if is_corpse {
@@ -1667,39 +1539,39 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
         }
         view.last_sig = Some(sig);
 
-        // Despawn the old rows (cells go with them).
-        forget_tree(view, &mut s.tinted, Some(cmds));
+        if view.content == 0 {
+            continue;
+        }
+        view.last_sig = Some(sig);
 
-        let mut row = None;
+        forget_tree(view, &mut s.tinted, true);
+        let page = view.page();
+        // The columns stay what cols() counts on, whatever the player's sheet says.
+        host::page_edit(page, "slots", &host::PageChange::Style(("grid-template-columns".into(), format!("repeat({cols}, {CELL}px)"))));
+
         for (slot, &index) in layout.iter().enumerate() {
-            if slot as i32 % cols == 0 {
-                let r = cmds.spawn((flex(Val::auto(), px(CELL)), Interaction::NONE, ChildOf::new(view.content))).id();
-                view.rows.push(r);
-                row = Some(r);
-            }
-            let row = row.unwrap();
-
-            // The tile: background only, so a drop on an EMPTY tile resolves to the
-            // window root and the drop-slot record keeps the slot.
-            let tile_e = cmds.spawn((centred(sized(CELL, CELL)), Interaction::NONE, ChildOf::new(row))).id();
+            // The slot: no hit target, so a drop on an EMPTY one resolves to the window
+            // root and the drop-slot record keeps the slot.
             let item = (index >= 0).then(|| &list[index as usize]);
-            let pinned = pinnable && item.is_some_and(|it| s.pins.contains(&it.serial));
-            let tile_bg = cmds
-                .spawn((
-                    centred(sized(TILE, TILE)),
-                    bg(if pinned { PINNED_SLOT } else { PANEL }),
-                    BorderRadius::all(4.0),
-                    Interaction::NONE,
-                    ChildOf::new(tile_e),
-                ))
-                .id();
-
+            let template = if item.is_some() { "item" } else { "slot" };
+            // A player's older page may have only the plain slot.
+            let Some(tile_bg) = host::page_clone(page, "slots", template).or_else(|| host::page_clone(page, "slots", "slot")) else { break };
             let Some(it) = item else { continue };
+            if it.amount > 1 {
+                if let Some(badge) = host::page_part(page, tile_bg, "amount") {
+                    host::page_edit_element(page, badge, &host::PageChange::Text(amount_label(it.amount)));
+                    host::page_edit_element(page, tile_bg, &host::PageChange::AddClass("stack".into()));
+                }
+            }
+            let pinned = pinnable && s.pins.contains(&it.serial);
+            if pinned {
+                host::page_edit_element(page, tile_bg, &host::PageChange::AddClass("pinned".into()));
+            }
             // A pinned item paints in the legacy hidden-object look.
             let hue = if pinned { hue_vector(PINNED_HUE, PINNED_ALPHA) } else { hue_vector(it.hue, 1.0) };
             let cell = cmds
                 .spawn((
-                    sized(TILE, TILE),
+                    Node { width: Val::percent(100.0), height: Val::percent(100.0), ..Node::base() },
                     art(displayed(it.graphic, it.amount as i32) as u32, hue, it.stacked),
                     Interaction::NONE,
                     // Whole-slot hit: press / hover / tooltip resolve anywhere in the cell.
@@ -1713,7 +1585,7 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
                     // The host's drop / selection pass matches cells by GlobalZIndex; it
                     // keeps tracking the window root on a z bump.
                     GlobalZIndex { value: win_z },
-                    ChildOf::new(tile_bg),
+                    ChildOf::new(Entity::from_bits(host::page_part(page, tile_bg, "art").unwrap_or(tile_bg))),
                 ))
                 .id();
             if pinned {
@@ -1727,41 +1599,40 @@ fn rebuild_grids(s: &mut State, cmds: &mut Commands) {
 // ── PostUpdate (multi-move) ─────────────────────────────────────────────────────
 
 #[system]
-fn post(grabbed: Option<Res<GrabbedItem>>, time: Option<Res<Time>>, mut cmds: Commands) {
+fn post(grabbed: Option<Res<GrabbedItem>>, time: Option<Res<Time>>) {
     let s = st();
     if !s.in_game {
         return;
     }
-    tint(s, &mut cmds);
+    tint(s);
     let held = grabbed.map_or(0, |g| g.serial);
     let now = time.map_or(s.f.now, |t| t.total);
     drain(s, held, now);
 }
 
-/// Selected cells paint their slot tile gold; re-applied after every rebuild.
-fn tint(s: &mut State, cmds: &mut Commands) {
+/// Selected cells get the page's `.selected`; re-applied after every rebuild.
+fn tint(s: &mut State) {
     if s.sel.container != 0 && !s.views.contains_key(&s.sel.container) {
         s.sel.clear();
     }
-    let mut want = HashMap::new();
+    let selected = || host::PageChange::AddClass("selected".into());
+    let mut want = HashSet::new();
     if let Some(view) = view_by_window(&s.views, s.sel.window) {
         for cell in &view.cells {
             if s.sel.serials.contains(&cell.serial) {
-                want.insert((view.serial, cell.slot), cell.bg);
+                want.insert((view.serial, cell.slot));
+                if s.tinted.insert((view.serial, cell.slot)) {
+                    host::page_edit_element(view.page(), cell.bg, &selected());
+                }
             }
         }
     }
-    for (key, &e) in &want {
-        if s.tinted.insert(*key) {
-            cmds.entity(e).insert(bg(SELECTED));
-        }
-    }
-    let stale: Vec<(u32, usize)> = s.tinted.iter().filter(|k| !want.contains_key(*k)).copied().collect();
+    let stale: Vec<(u32, usize)> = s.tinted.difference(&want).copied().collect();
     for key in stale {
         s.tinted.remove(&key);
-        let e = s.views.get(&key.0).and_then(|v| v.cells.iter().find(|c| c.slot == key.1)).map(|c| c.bg);
-        if let Some(e) = e {
-            cmds.entity(e).insert(bg(PANEL));
+        let Some(view) = s.views.get(&key.0) else { continue };
+        if let Some(cell) = view.cells.iter().find(|c| c.slot == key.1) {
+            host::page_edit_element(view.page(), cell.bg, &host::PageChange::RemoveClass("selected".into()));
         }
     }
 }

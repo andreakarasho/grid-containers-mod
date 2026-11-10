@@ -4,16 +4,10 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 pub const INSET: i32 = 8;
-pub const TITLE_H: i32 = 14;
-pub const ICON_SIZE: i32 = 28;
-pub const ICON_TOP: i32 = 6;
-pub const HEADER_H: i32 = 44;
+pub const HEADER_H: i32 = 56;
 pub const FOOTER_H: i32 = 16;
-pub const HEADER_GAP: i32 = 4;
 pub const CELL: i32 = 50;
-pub const TILE: i32 = CELL - 4;
 pub const GRIP: i32 = 14;
-pub const SORT_W: i32 = 48;
 pub const MIN_WIN: i32 = 160;
 pub const MAX_WIN: i32 = 900;
 pub const PIN_MENU_W: i32 = 74;
@@ -28,6 +22,10 @@ pub const FLAT_SCROLLBAR_W: i32 = 8;
 /// Overlay z floor — the lasso box sits in the pinned-overlay band.
 pub const OVERLAY_FLOOR: i32 = 10000;
 pub const CORPSE_MAX_DIST: i32 = 3;
+/// A window that opens with no spare width or height: 5 x 4 cells.
+pub const DEFAULT_SIZE: (i32, i32) = (276, 282);
+/// From here the weight meter warns.
+pub const HEAVY_PERCENT: u32 = 90;
 
 pub fn cols(w: i32) -> i32 {
     ((w - INSET * 2 - FLAT_SCROLLBAR_W) / CELL).max(1)
@@ -254,6 +252,30 @@ pub fn parse_stones(opl_data: Option<&str>) -> String {
     }
 }
 
+/// "23/400 stones" -> 5: how full the weight meter is. None when the text has no weight.
+pub fn load_percent(stones: &str) -> Option<u32> {
+    let (now, max) = stones.split(' ').next()?.split_once('/')?;
+    let (now, max) = (now.parse::<u32>().ok()?, max.parse::<u32>().ok()?);
+    (max > 0).then(|| (now.saturating_mul(100) / max).min(100))
+}
+
+/// A stack's badge, short enough for a cell: 60000 -> "60k".
+pub fn amount_label(amount: u16) -> String {
+    if amount >= 10_000 {
+        format!("{}k", amount / 1000)
+    } else {
+        amount.to_string()
+    }
+}
+
+pub fn count_label(items: usize) -> String {
+    if items == 1 {
+        "1 item".to_string()
+    } else {
+        format!("{items} items")
+    }
+}
+
 /// ShaderHueTranslator.GetHueVector(hue, partial: false, alpha) for an un-gumped,
 /// non-effect draw.
 pub fn hue_vector(hue: u16, alpha: f32) -> (f32, f32, f32) {
@@ -306,16 +328,10 @@ pub fn draw_stacked(graphic: u16, amount: i32, stackable: bool) -> bool {
 
 pub type Rgba = (u8, u8, u8, u8);
 
-pub const BG: Rgba = (9, 12, 17, 250);
-pub const PANEL: Rgba = (16, 21, 29, 255);
-pub const PINNED_SLOT: Rgba = (20, 64, 60, 255);
-pub const FIELD: Rgba = (34, 43, 56, 255);
+pub const BG: Rgba = (13, 17, 23, 247);
 pub const CONTROL: Rgba = (28, 36, 47, 255);
-pub const FRAME: Rgba = (39, 45, 54, 255);
 pub const ACCENT: Rgba = (47, 191, 174, 255);
 pub const TEXT: Rgba = (232, 237, 242, 255);
-pub const TEXT_MUTED: Rgba = (152, 162, 173, 255);
-pub const SELECTED: Rgba = (47, 191, 174, 110);
 pub const BOX_FILL: Rgba = (47, 191, 174, 40);
 
 /// The panel background for a container hue: the hue's brightest ramp cell
@@ -549,6 +565,20 @@ mod tests {
     }
 
     #[test]
+    fn load_percent_reads_the_weight_text() {
+        assert_eq!(load_percent("23/400 stones"), Some(5));
+        assert_eq!(load_percent("500/400 stones"), Some(100));
+        assert_eq!(load_percent("1/0 stones"), None);
+        assert_eq!(load_percent(""), None);
+    }
+
+    #[test]
+    fn labels_fit_a_cell_and_count_in_english() {
+        assert_eq!((amount_label(9999).as_str(), amount_label(60000).as_str()), ("9999", "60k"));
+        assert_eq!((count_label(1).as_str(), count_label(0).as_str()), ("1 item", "0 items"));
+    }
+
+    #[test]
     fn search_name_prefers_opl_and_falls_back_to_tiledata() {
         assert_eq!(resolve_item_search_name(None, Some("katana")).as_deref(), Some("katana"));
         assert_eq!(
@@ -572,7 +602,8 @@ mod tests {
     #[test]
     fn layout_formulas_at_the_default_size() {
         assert_eq!(cols(320), 5);
-        assert_eq!(content_h(300), 232);
+        assert_eq!(content_h(300), 220);
+        assert_eq!((cols(DEFAULT_SIZE.0), content_h(DEFAULT_SIZE.1) / CELL), (5, 4));
         assert_eq!(cols(10), 1);
     }
 
@@ -601,7 +632,7 @@ mod tests {
         assert_eq!(panel_color(0, 0xFF_FF_FF_FF), BG);
         assert_eq!(panel_color(0x21, 0), BG);
         // R=100, G=200, B=0 packed ABGR.
-        assert_eq!(panel_color(0x21, 0x00_00_C8_64), (36, 58, 14, 250));
+        assert_eq!(panel_color(0x21, 0x00_00_C8_64), (36, 58, 14, 247));
     }
 
     #[test]
