@@ -10,7 +10,7 @@ pub const CELL: i32 = 50;
 pub const GRIP: i32 = 14;
 pub const MIN_WIN: i32 = 160;
 pub const MAX_WIN: i32 = 900;
-pub const PIN_MENU_W: i32 = 74;
+pub const PIN_MENU_W: i32 = 84;
 pub const PIN_MENU_ROW_H: i32 = 20;
 pub const PIN_MENU_PAD: i32 = 3;
 pub const PINNED_HUE: u16 = 0x038E;
@@ -335,14 +335,14 @@ pub const TEXT: Rgba = (232, 237, 242, 255);
 pub const BOX_FILL: Rgba = (47, 191, 174, 40);
 
 /// The panel background for a container hue: the hue's brightest ramp cell
-/// (`tint` = GetPolygoneColor(31, hue & 0x3FFF), packed ABGR) scaled onto the dark
+/// (`tint` = GetPolygoneColor(31, hue & 0x3FFF), packed 0xAARRGGBB as the host returns it) scaled onto the dark
 /// panel so it reads as a tint.
 pub fn panel_color(hue: u16, tint: u32) -> Rgba {
     if hue & 0x3FFF == 0 || tint == 0 {
         return BG;
     }
     let shade = |c: u32| (14.0f32 + c as f32 * 0.22f32) as u8;
-    (shade(tint & 0xFF), shade((tint >> 8) & 0xFF), shade((tint >> 16) & 0xFF), BG.3)
+    (shade((tint >> 16) & 0xFF), shade((tint >> 8) & 0xFF), shade(tint & 0xFF), BG.3)
 }
 
 /// Constants.BAD_CONTAINER_LAYERS: true = a corpse shows items on that layer.
@@ -631,8 +631,8 @@ mod tests {
     fn panel_color_shades_the_ramp_or_keeps_the_plain_panel() {
         assert_eq!(panel_color(0, 0xFF_FF_FF_FF), BG);
         assert_eq!(panel_color(0x21, 0), BG);
-        // R=100, G=200, B=0 packed ABGR.
-        assert_eq!(panel_color(0x21, 0x00_00_C8_64), (36, 58, 14, 247));
+        // R=100, G=200, B=0 packed ARGB.
+        assert_eq!(panel_color(0x21, 0xFF_64_C8_00), (36, 58, 14, 247));
     }
 
     #[test]

@@ -6,7 +6,7 @@
    The window, #sort and #search take the client's theme (<body data-theme>): the body draws the
    window, so its padding stays 0 here to keep the sizes above. */
 
-body { margin: 0; padding: 0; width: 100%; height: 100%; font-size: 12px }
+body { margin: 0; padding: 0; width: 100%; height: 100%; font-size: 14px }
 button { display: flex; justify-content: center; align-items: center; flex-shrink: 0; padding: 0 }
 
 #frame {
@@ -23,18 +23,18 @@ button { display: flex; justify-content: center; align-items: center; flex-shrin
 }
 #titlebar { display: flex; align-items: center; flex-shrink: 0; gap: 6px; height: 22px }
 #icon { width: 22px; height: 22px; flex-shrink: 0 }
-#title { display: flex; align-items: center; flex-grow: 1; min-width: 0; height: 22px; overflow: hidden; white-space: nowrap; font-size: 13px; font-weight: bold }
-#close { width: 18px; height: 18px; background-color: transparent; background-image: none; border: none; border-radius: 4px; color: var(--theme-muted, rgb(152, 162, 173)); font-size: 11px }
+#title { display: flex; align-items: center; flex-grow: 1; min-width: 0; height: 22px; overflow: hidden; white-space: nowrap; font-size: 14px; font-weight: bold }
+#close { width: 18px; height: 18px; background-color: transparent; background-image: none; border: none; border-radius: 4px; color: var(--theme-muted, rgb(152, 162, 173)); font-size: 14px }
 #close:hover { background-color: rgb(166, 58, 58); background-image: none; color: rgb(255, 255, 255) }
 
 #tools { display: flex; flex-shrink: 0; gap: 4px; height: 20px }
 #search-box { position: relative; display: flex; flex-grow: 1; min-width: 0; height: 20px }
 #search {
-  flex-grow: 1; min-width: 0; height: 20px; box-sizing: border-box; padding: 0 0 0 6px; font-size: 12px;
+  flex-grow: 1; min-width: 0; height: 20px; box-sizing: border-box; padding: 0 0 0 6px; font-size: 14px;
 }
 /* Above the field, without a hit target: a click goes through to it. */
 #hint { position: absolute; left: 6px; top: 0; display: flex; align-items: center; height: 20px; color: var(--theme-muted, rgb(152, 162, 173)) }
-#sort { width: 76px; height: 20px; font-size: 11px }
+#sort { width: 100px; height: 20px; font-size: 14px }
 
 #slots {
   display: grid; grid-auto-rows: 50px; align-content: start; flex-grow: 1; min-height: 0; margin: 0 8px;
@@ -54,11 +54,11 @@ button { display: flex; justify-content: center; align-items: center; flex-shrin
 }
 .stack .amount { display: flex }
 
-#footer { display: flex; flex-direction: column; flex-shrink: 0; gap: 3px; box-sizing: border-box; height: 24px; padding: 3px 18px 0 10px; color: var(--theme-muted, rgb(152, 162, 173)); font-size: 11px }
+#footer { display: flex; flex-direction: column; flex-shrink: 0; gap: 2px; box-sizing: border-box; height: 24px; padding: 2px 18px 0 10px; color: var(--theme-muted, rgb(152, 162, 173)); font-size: 14px }
 #meter { flex-shrink: 0; height: 3px; background-color: rgba(255, 255, 255, 0.08); border-radius: 2px }
 #load { width: 0; height: 3px; background-color: var(--theme-accent, rgb(47, 191, 174)); border-radius: 2px }
 #load.heavy { background-color: rgb(224, 138, 64) }
-#stats { display: flex; justify-content: space-between; align-items: center; height: 13px; white-space: nowrap }
+#stats { display: flex; justify-content: space-between; align-items: center; height: 17px; white-space: nowrap }
 
 /* The corner mark of the resize grip. */
 #grip {

@@ -868,6 +868,9 @@ fn pin_context_menu(s: &mut State, cmds: &mut Commands) {
             BorderRadius::all(4.0),
             Interaction::NONE,
             UiPopup {},
+            // A window root to the host, so the cursor reads "over a gump", not world.
+            UiMovable {},
+            UiMovableNoDrag {},
             UiNoWindowDrag {},
             GlobalZIndex { value: -1 },
         ))
@@ -879,7 +882,7 @@ fn pin_context_menu(s: &mut State, cmds: &mut Commands) {
             bg(CONTROL),
             BorderRadius::all(4.0),
             Text { value: caption.into() },
-            TextFont { font_id: 1, size: 11 },
+            TextFont { font_id: 1, size: 14 },
             TextColor { value: col(TEXT) },
             Interaction::NONE,
             UiNoWindowDrag {},
